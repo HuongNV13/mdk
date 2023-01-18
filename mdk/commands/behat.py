@@ -27,8 +27,10 @@ import urllib.request, urllib.parse, urllib.error
 import re
 import logging
 import gzip
+import json
 from tempfile import gettempdir
 from time import sleep
+from os.path import exists
 from ..command import Command
 from ..tools import process, ProcessInThread, downloadProcessHook, question, natural_sort_key
 
@@ -77,6 +79,13 @@ class BehatCommand(Command):
             {
                 'metavar': 'tags',
                 'help': 'only execute the features or scenarios with tags matching tag filter expression'
+            }
+        ),
+        (
+            ['--parallel'],
+            {
+                'metavar': 'number',
+                'help': 'run the tests in parallel'
             }
         ),
         (
@@ -223,20 +232,40 @@ class BehatCommand(Command):
             outputDir = self.Wp.getExtraDir(M.get('identifier'), 'behat')
             outpurUrl = self.Wp.getUrl(M.get('identifier'), extra='behat')
 
+            threadNo = 1
+            if args.parallel:
+                threadNo = int(args.parallel)
+            else:
+                torun = 1
+                behat_dataroot = M.get('dataroot') + '_behat'
+                fileexists = exists(behat_dataroot + '/run_environment.json')
+                if fileexists:
+                    envfile = open(behat_dataroot + '/run_environment.json', 'r')
+                    envdata = json.loads(envfile.read())
+                    if 'parallel' in envdata:
+                        torun = int(envdata['parallel'])
+                if torun > 1:
+                    threadNo = torun
             logging.info('Initialising Behat, please be patient!')
-            M.initBehat(switchcompletely=args.switchcompletely, force=args.force, prefix=prefix, faildumppath=outputDir)
+            M.initBehat(switchcompletely=args.switchcompletely, force=args.force, prefix=prefix, faildumppath=outputDir, threadNo=threadNo)
             logging.info('Behat ready!')
 
             # Preparing Behat command
             cmd = ['vendor/bin/behat']
+            cmdparallel = 'admin/tool/behat/cli/run.php'
+            cmdparallelargs = []
+
             if args.tags:
                 cmd.append('--tags="%s"' % (args.tags))
+                cmdparallelargs.append('--tags="%s"' % (args.tags))
 
             if args.testname:
                 cmd.append('--name="%s"' % (args.testname))
+                cmdparallelargs.append('--name="%s"' % (args.testname))
 
             if not (args.tags or args.testname) and nojavascript:
                 cmd.append('--tags ~@javascript')
+                cmdparallelargs.append('--tags ~@javascript')
 
             if args.faildump:
                 if M.branch_compare(31, '<'):
@@ -247,12 +276,17 @@ class BehatCommand(Command):
                     cmd.append('--format="progress" --out="{0}/progress.txt"'.format(outputDir))
                     cmd.append('--format="pretty" --out="{0}/pretty.txt"'.format(outputDir))
 
+                    cmdparallelargs.append('--format="moodle_progress" --out="std"')
+                    cmdparallelargs.append('--format="progress" --out="{0}/progress.txt"'.format(outputDir))
+                    cmdparallelargs.append('--format="pretty" --out="{0}/pretty.txt"'.format(outputDir))
+
             configcandidates = ['%s/behat/behat.yml' % (M.get('behat_dataroot'))]
             if M.branch_compare(32):
                 # Since Moodle 3.2.2 behat directory is kept under $CFG->behat_dataroot for single and parallel runs.
                 configcandidates.insert(0, '%s/behatrun/behat/behat.yml' % (M.get('behat_dataroot')))
 
-            cmd.append('--config=%s' % (list(filter(os.path.isfile, configcandidates))[0]))
+            if threadNo == 1:
+                cmd.append('--config=%s' % (list(filter(os.path.isfile, configcandidates))[0]))
 
             # Checking feature argument
             if args.feature:
@@ -316,7 +350,10 @@ class BehatCommand(Command):
                 try:
                     if args.faildump:
                         logging.info('More output can be found at:\n %s\n %s', outputDir, outpurUrl)
-                    process(cmd, M.path, None, None)
+                    if threadNo == 1:
+                        process(cmd, M.path, None, None)
+                    else:
+                        M.cli(cmdparallel, args=cmdparallelargs, stdout=None, stderr=None)
                 except KeyboardInterrupt:
                     pass
 

@@ -185,7 +185,7 @@ class Moodle(object):
         cli = os.path.join(self.get('path'), cli.lstrip('/'))
         if not os.path.isfile(cli):
             raise Exception('Could not find script to call')
-        if type(args) == 'list':
+        if type(args) == list:
             args = ' '.join(args)
         cmd = '%s %s %s' % (C.get('php'), cli, args)
         return process(cmd, cwd=self.get('path'), **kwargs)
@@ -289,7 +289,7 @@ class Moodle(object):
         """Initialise the PHPUnit environment"""
         raise Exception('This method is deprecated, use phpunit.PHPUnit.init() instead.')
 
-    def initBehat(self, switchcompletely=False, force=False, prefix=None, faildumppath=None):
+    def initBehat(self, switchcompletely=False, force=False, prefix=None, faildumppath=None, threadNo=1):
         """Initialise the Behat environment"""
 
         if self.branch_compare(25, '<'):
@@ -352,7 +352,11 @@ class Moodle(object):
                 raise Exception('Error while initialising Behat. Please try manually.')
 
         # Run the init script.
-        result = self.cli('admin/tool/behat/cli/init.php', stdout=None, stderr=None)
+        if threadNo == 1:
+            result = self.cli('admin/tool/behat/cli/init.php', stdout=None, stderr=None)
+        else:
+            result = self.cli('admin/tool/behat/cli/init.php', args=['--parallel={}'.format(threadNo)], stdout=None, stderr=None)
+            # result = self.cli('admin/tool/behat/cli/init.php', args=['--parallel={}'.format(threadNo), '--optimize-runs'], stdout=None, stderr=None)
         if result[0] != 0:
             raise Exception('Error while initialising Behat. Please try manually.')
 
